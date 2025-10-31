@@ -55,15 +55,6 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 					$currency_symbol_right = $this->currency->getSymbolRight($currency_code);  
 					$amount = str_replace([$currency_symbol_left, $currency_symbol_right], '', $amt);
 					$amount = number_format($amount, 2, '.', '');
-					
-					// Convert to USD if not USD
-					if ($currency != 'USD') {
-						$convert_url = "https://api.paygate.to/control/convert.php?from=" . urlencode($currency) . "&value=" . $amount;
-						$convert_resp = json_decode($this->curlGet($convert_url), true);
-						if (!empty($convert_resp['value_coin'])) {
-							$amount = $convert_resp['value_coin'];
-						}
-					}
 
 					// Create wallet (generate address_in)
 					$callback_url = $this->url->link('extension/paygatedotto/payment/paygatedotto.callback', 'order_id=' . $order_id, true);
@@ -84,7 +75,7 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 						$comment .='<br>ipn_token:'.$wallet_resp['ipn_token'];
 						$this->model_checkout_order->addHistory($order_id, 1, $comment, false);
 						// Multi-provider Hosted Payment Page
-						$redirect_url = "https://{$domain}/pay.php?address={$address_in}&amount={$amount}&email={$email}&currency={$currency}&domain=" . urlencode($domain);
+						$redirect_url = "https://{$domain}/pay.php?address={$address_in}&amount={$amount}&email={$email}&currency={$currency}";
 
 						$json['redirect'] = $redirect_url;
 					}
@@ -104,7 +95,16 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
         if ($order_id && $value_coin) {
             $this->load->model('checkout/order');
             $order = $this->model_checkout_order->getOrder($order_id);
-            $expected = (float)$order['total'];
+			$callbackcurrency = $order['currency_code'];
+			// Convert to USD if not USD
+					if ($callbackcurrency != 'USD') {
+						$convert_url = "https://api.paygate.to/control/convert.php?from=" . $callbackcurrency . "&value=" . (float)$order['total'];
+						$convert_resp = json_decode($this->curlGet($convert_url), true);
+						if (!empty($convert_resp['value_coin'])) {
+							$expected = (float)$convert_resp['value_coin'];
+						}
+					}
+
             $threshold = 0.6 * $expected;
 
             if ($value_coin < $threshold) {
