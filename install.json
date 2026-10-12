@@ -2,7 +2,7 @@
     "name": "PayGatedotto Instant Payment Gateway (Multi-Provider)",
     "code": "paygatedotto",
     "license": "GPL",
-    "version": "1.0",
+    "version": "1.1",
     "author": "PayGate.to",
     "link": "https://paygate.to"
 }

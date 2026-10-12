@@ -44,6 +44,7 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
             'payment_paygatedotto_description',
             'payment_paygatedotto_wallet_address',
             'payment_paygatedotto_custom_domain',
+            'payment_paygatedotto_api_domain',
             'payment_paygatedotto_icon_url'
         ];
 
@@ -81,7 +82,15 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 		if (!$json) {
 			$this->load->model('setting/setting');
 
-			$this->model_setting_setting->editSetting('payment_paygatedotto', $this->request->post);
+			// Keep the callback secret (created at checkout) when saving, so pending orders' callbacks stay valid
+			$settings = $this->request->post;
+			unset($settings['payment_paygatedotto_callback_secret']);
+			$secret = $this->db->query("SELECT `value` FROM `" . DB_PREFIX . "setting` WHERE `store_id` = '0' AND `key` = 'payment_paygatedotto_callback_secret' ORDER BY `setting_id` ASC LIMIT 1");
+			if ($secret->num_rows && $secret->row['value'] !== '') {
+				$settings['payment_paygatedotto_callback_secret'] = $secret->row['value'];
+			}
+
+			$this->model_setting_setting->editSetting('payment_paygatedotto', $settings);
 
 			$json['success'] = $this->language->get('text_success');
 		}

@@ -57,8 +57,8 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 					$amount = number_format($amount, 2, '.', '');
 
 					// Create wallet (generate address_in)
-					$callback_url = $this->url->link('extension/paygatedotto/payment/paygatedotto.callback', 'order_id=' . $order_id, true);
-					$wallet_api = "https://api.paygate.to/control/wallet.php?address=" . urlencode($wallet) . "&callback=" . urlencode($callback_url);
+					$callback_url = $this->url->link('extension/paygatedotto/payment/paygatedotto.callback', 'order_id=' . $order_id . '&sig=' . $this->callbackSignature((int)$order_id), true);
+					$wallet_api = "https://" . $this->apiHost() . "/control/wallet.php?address=" . urlencode($wallet) . "&callback=" . urlencode($callback_url);
 					$wallet_resp = json_decode($this->curlGet($wallet_api), true);
 
 					if (empty($wallet_resp['address_in'])) {
@@ -88,20 +88,42 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 	
 	// PayGate callback
     public function callback(): void {
-        $order_id = $this->request->get['order_id'] ?? 0;
+        $order_id = (int)($this->request->get['order_id'] ?? 0);
         $value_coin = (float)($this->request->get['value_coin'] ?? 0);
         $txid_out = $this->request->get['txid_out'] ?? '';
+
+        // Only accept callbacks whose order_id carries our signature (added to the callback URL at checkout)
+        if (!$order_id || !hash_equals($this->callbackSignature($order_id), (string)($this->request->get['sig'] ?? ''))) {
+            echo 'Invalid callback signature';
+            return;
+        }
 
         if ($order_id && $value_coin) {
             $this->load->model('checkout/order');
             $order = $this->model_checkout_order->getOrder($order_id);
+            if (!$order) {
+                echo 'Invalid order';
+                return;
+            }
+            // Already completed: ignore repeated callbacks
+            $paid_status_id = (int)$this->config->get('payment_paygatedotto_order_status_id');
+            if ($paid_status_id > 0 && (int)$order['order_status_id'] === $paid_status_id) {
+                echo 'OK';
+                return;
+            }
 			$callbackcurrency = $order['currency_code'];
+			// Expected amount in USD (order total in the order currency, converted when the order is not in USD)
+			$order_amount = (float)$this->currency->format($order['total'], $callbackcurrency, $order['currency_value'], false);
+			$expected = $order_amount;
 			// Convert to USD if not USD
 					if ($callbackcurrency != 'USD') {
-						$convert_url = "https://api.paygate.to/control/convert.php?from=" . $callbackcurrency . "&value=" . (float)$order['total'];
+						$convert_url = "https://" . $this->apiHost() . "/control/convert.php?from=" . $callbackcurrency . "&value=" . $order_amount;
 						$convert_resp = json_decode($this->curlGet($convert_url), true);
 						if (!empty($convert_resp['value_coin'])) {
 							$expected = (float)$convert_resp['value_coin'];
+						} else {
+							echo 'ERROR: currency conversion failed';
+							return;
 						}
 					}
 
@@ -122,6 +144,33 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
             echo 'OK';
         }
     }
+	
+	// Callback signature: HMAC of the order ID with this store's random callback secret
+	private function callbackSignature(int $order_id): string {
+		return hash_hmac('sha256', (string)$order_id, $this->callbackSecret());
+	}
+
+	// Random secret created once and kept in the extension settings (never shown or derived from public data)
+	private function callbackSecret(): string {
+		$sql = "SELECT `value` FROM `" . DB_PREFIX . "setting` WHERE `store_id` = '0' AND `key` = 'payment_paygatedotto_callback_secret' ORDER BY `setting_id` ASC LIMIT 1";
+		$query = $this->db->query($sql);
+		if (!$query->num_rows || $query->row['value'] === '') {
+			$this->db->query("INSERT INTO `" . DB_PREFIX . "setting` SET `store_id` = '0', `code` = 'payment_paygatedotto', `key` = 'payment_paygatedotto_callback_secret', `value` = '" . $this->db->escape(bin2hex(random_bytes(32))) . "', `serialized` = '0'");
+			$query = $this->db->query($sql);
+		}
+		return (string)$query->row['value'];
+	}
+
+	// API host: dedicated API endpoint from settings, or the shared api.paygate.to when empty/invalid
+	private function apiHost(): string {
+		$host = strtolower(trim((string)$this->config->get('payment_paygatedotto_api_domain')));
+		$host = preg_replace('#^https?://#', '', $host);
+		$host = rtrim(explode('/', $host, 2)[0], '.');
+		if ($host === '' || !preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host)) {
+			return 'api.paygate.to';
+		}
+		return $host;
+	}
 	
 	// Simple helper to GET remote URL
     private function curlGet(string $url) {
