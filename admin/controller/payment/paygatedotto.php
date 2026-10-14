@@ -35,6 +35,8 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 		$data['back'] = $this->url->link('marketplace/extension', 'user_token=' . $this->session->data['user_token'] . '&type=payment');
 
 		$data['payment_paygatedotto_order_status_id'] = $this->config->get('payment_paygatedotto_order_status_id');
+		$tolerance = (string)$this->config->get('payment_paygatedotto_tolerance');
+		$data['payment_paygatedotto_tolerance'] = ($tolerance === '') ? '0.60' : $tolerance;
 		$data['payment_paygatedotto_geo_zone_id'] = $this->config->get('payment_paygatedotto_geo_zone_id');
 		$data['payment_paygatedotto_sort_order'] = $this->config->get('payment_paygatedotto_sort_order');
 		
@@ -55,6 +57,16 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 		$this->load->model('localisation/order_status');
 
 		$data['order_statuses'] = $this->model_localisation_order_status->getOrderStatuses();
+
+		// Never saved yet: preselect "Processing" for paid orders (not the first status in the list)
+		if (!$data['payment_paygatedotto_order_status_id']) {
+			foreach ($data['order_statuses'] as $order_status) {
+				if ($order_status['name'] == 'Processing') {
+					$data['payment_paygatedotto_order_status_id'] = $order_status['order_status_id'];
+					break;
+				}
+			}
+		}
 
 		$this->load->model('localisation/geo_zone');
 

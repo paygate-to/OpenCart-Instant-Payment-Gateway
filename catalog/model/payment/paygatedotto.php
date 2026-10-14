@@ -14,8 +14,6 @@ class Paygatedotto extends \Opencart\System\Engine\Model {
 
 		if ($this->cart->hasSubscription()) {
 			$status = false;
-		} elseif (!$this->cart->hasShipping()) {
-			$status = false;
 		} elseif (!$this->config->get('config_checkout_payment_address')) {
 			$status = true;
 		} elseif (!$this->config->get('payment_paygatedotto_geo_zone_id')) {
