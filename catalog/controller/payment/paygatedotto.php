@@ -3,6 +3,9 @@ namespace Opencart\Catalog\Controller\Extension\Paygatedotto\Payment;
 
 class Paygatedotto extends \Opencart\System\Engine\Controller {
 
+    // Native coins a card payout can arrive in => their PayGate.to coin path (priced via info.php)
+    private const NATIVE_PAYOUTS = ['polygon_pol' => 'polygon/pol', 'eth' => 'eth', 'bep20_bnb' => 'bep20/bnb'];
+
     /**
      * Display payment method
      *
@@ -147,7 +150,17 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
             $tolerance = is_numeric($tolerance) ? max(0.0, min(1.0, (float)$tolerance)) : 0.60;
             $threshold = $tolerance * $expected;
 
-            if ($value_coin < $threshold) {
+            // Payouts arrive in USDC or USDT; some providers pay out in POL, ETH or BNB, priced in USD here
+            $received_usd = $value_coin;
+            $coin = (string)($this->request->get['coin'] ?? '');
+            if (isset(self::NATIVE_PAYOUTS[$coin])) {
+                $info = json_decode((string)$this->curlGet("https://" . $this->apiHost() . "/crypto/" . self::NATIVE_PAYOUTS[$coin] . "/info.php"), true);
+                if (isset($info['prices']['USD']) && is_numeric($info['prices']['USD'])) {
+                    $received_usd = $value_coin * (float)$info['prices']['USD'];
+                }
+            }
+
+            if ($received_usd < $threshold) {
                 $this->model_checkout_order->addHistory($order_id, 10, 'Partial payment (below the fees tolerance of ' . round($tolerance * 100) . '%). TXID: ' . $txid_out, true);
                 echo 'FAILED';
                 return;
