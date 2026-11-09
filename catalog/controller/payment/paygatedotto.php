@@ -98,8 +98,15 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
 
         // PayGate's RSA signature over the exact URL it requested: proves the callback came from
         // PayGate and that value_coin was not changed
-        $registered = $this->url->link('extension/paygatedotto/payment/paygatedotto.callback', 'order_id=' . $order_id . '&sig=' . $this->callbackSignature($order_id), true);
-        $verify = $this->verifyPaygateSignature($registered);
+        // The callback URL was registered at checkout as store URL + index.php (SEO URLs off) or as the
+        // bare store URL (SEO URLs on, with or without the trailing slash): accept any of these, so
+        // turning SEO URLs on or off never breaks the callbacks of pending orders
+        foreach ([$this->config->get('config_url') . 'index.php', rtrim($this->config->get('config_url'), '/'), $this->config->get('config_url')] as $base) {
+            $verify = $this->verifyPaygateSignature($base);
+            if ($verify['verified'] || $verify['reason'] != 'signature_mismatch') {
+                break;
+            }
+        }
         if (!$verify['verified']) {
             http_response_code(403);
             echo 'Invalid PayGate signature (' . $verify['reason'] . ')';
