@@ -155,9 +155,13 @@ class Paygatedotto extends \Opencart\System\Engine\Controller {
             $coin = (string)($this->request->get['coin'] ?? '');
             if (isset(self::NATIVE_PAYOUTS[$coin])) {
                 $info = json_decode((string)$this->curlGet("https://" . $this->apiHost() . "/crypto/" . self::NATIVE_PAYOUTS[$coin] . "/info.php"), true);
-                if (isset($info['prices']['USD']) && is_numeric($info['prices']['USD'])) {
-                    $received_usd = $value_coin * (float)$info['prices']['USD'];
+                if (!isset($info['prices']['USD']) || !is_numeric($info['prices']['USD'])) {
+                    // Temporary: the order is not changed and PayGate.to calls again
+                    http_response_code(503);
+                    echo 'price unavailable';
+                    return;
                 }
+                $received_usd = $value_coin * (float)$info['prices']['USD'];
             }
 
             if ($received_usd < $threshold) {
